@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { 
-  signAccessToken, 
-  signRefreshToken, 
-  AUTH_COOKIE_NAME, 
-  REFRESH_COOKIE_NAME 
+import {
+  signAccessToken,
+  signRefreshToken,
+  AUTH_COOKIE_NAME,
+  REFRESH_COOKIE_NAME
 } from '@/lib/auth';
 import { hashPassword } from '@/lib/security';
 
@@ -25,9 +25,9 @@ export async function GET(req: Request) {
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const isLiveConfigured = 
-      clientId && 
-      clientSecret && 
+    const isLiveConfigured =
+      clientId &&
+      clientSecret &&
       !clientId.includes('your-google-client-id') &&
       code !== 'mock_google_oauth_code';
 
