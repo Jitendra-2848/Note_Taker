@@ -141,6 +141,7 @@ shareApp.get('/share/:token', async (c) => {
         content: link.note.content,
         accessType: link.accessType,
         shareType: link.shareType,
+        expiresAt: link.expiresAt,
         requiresPassword: false,
         requiresExplicitRead: false,
       };
@@ -327,6 +328,7 @@ shareApp.post('/share/:token', async (c) => {
         content: link.note.content,
         accessType: link.accessType,
         shareType: link.shareType,
+        expiresAt: link.expiresAt,
         requiresPassword: false,
       },
       message: 'Note unlocked successfully',

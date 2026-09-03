@@ -33,8 +33,42 @@ export default function PublicSharePage({ params }: { params: Promise<{ token: s
   const [unlocking, setUnlocking] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [unlockedContent, setUnlockedContent] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState<{
+    hours: number;
+    minutes: number;
+    seconds: number;
+    isExpired: boolean;
+  } | null>(null);
 
   const hasFetchedRef = useRef(false);
+
+  // Live countdown timer for time-based links
+  useEffect(() => {
+    if (!data?.expiresAt || data.shareType !== 'TIME_BASED') {
+      setTimeLeft(null);
+      return;
+    }
+
+    const calculateTimeLeft = () => {
+      const difference = new Date(data.expiresAt!).getTime() - Date.now();
+      if (difference <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, isExpired: true });
+        setError('This share link has expired.');
+        setErrorCode('EXPIRED');
+        return;
+      }
+
+      const hours = Math.floor(difference / (1000 * 60 * 60));
+      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+
+      setTimeLeft({ hours, minutes, seconds, isExpired: false });
+    };
+
+    calculateTimeLeft();
+    const interval = setInterval(calculateTimeLeft, 1000);
+    return () => clearInterval(interval);
+  }, [data?.expiresAt, data?.shareType]);
 
   const fetchShareLink = async () => {
     if (unlocked || unlockedContent) return;
@@ -194,6 +228,16 @@ export default function PublicSharePage({ params }: { params: Promise<{ token: s
                 <div className="flex flex-wrap items-center gap-1.5">
                   <StatusBadge status={data.accessType} />
                   <StatusBadge status={data.shareType} />
+                  {data.shareType === 'TIME_BASED' && timeLeft && (
+                    <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium border ${
+                      timeLeft.hours === 0 && timeLeft.minutes < 15
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 animate-pulse'
+                        : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                    }`}>
+                      <Clock className="h-3 w-3 shrink-0" />
+                      <span>{timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s remaining</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -209,7 +253,13 @@ export default function PublicSharePage({ params }: { params: Promise<{ token: s
                       One-Time: Access is first-come, first-served. Burns upon reading.
                     </li>
                   ) : (
-                    <li>Accessible until the set expiration limit.</li>
+                    <li className="text-amber-700 dark:text-amber-400 font-medium">
+                      {timeLeft
+                        ? `Time remaining: ${timeLeft.hours}h ${timeLeft.minutes}m ${timeLeft.seconds}s (expires at ${new Date(data.expiresAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+                        : data.expiresAt
+                        ? `Expires on ${new Date(data.expiresAt).toLocaleString()}`
+                        : 'Active until manually revoked.'}
+                    </li>
                   )}
                   {data.requiresPassword && (
                     <li>Incorrect keys will not open the note or increment views.</li>
@@ -299,12 +349,25 @@ export default function PublicSharePage({ params }: { params: Promise<{ token: s
                 <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-100 tracking-tight">
                   {data?.title || 'Note'}
                 </h2>
-                <div className="flex items-center space-x-1.5 text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
                   <span className="text-emerald-600 dark:text-emerald-400 font-medium">Unlocked</span>
                   <span>•</span>
                   <span>
                     {data?.shareType === 'ONE_TIME' ? 'One-Time Read' : 'Time-Based'}
                   </span>
+                  {data?.shareType === 'TIME_BASED' && timeLeft && (
+                    <>
+                      <span>•</span>
+                      <span className={`inline-flex items-center space-x-1 font-mono font-medium ${
+                        timeLeft.hours === 0 && timeLeft.minutes < 15
+                          ? 'text-rose-600 dark:text-rose-400 animate-pulse'
+                          : 'text-amber-700 dark:text-amber-400'
+                      }`}>
+                        <Clock className="h-3 w-3 inline" />
+                        <span>{timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s remaining</span>
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 
