@@ -3,11 +3,16 @@ import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { hashPassword, generateAccessKey } from '@/lib/security';
 
+import { flushPendingViews } from '@/lib/view-buffer';
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Trigger non-blocking background flush without delaying the read request
+  flushPendingViews().catch(() => {});
 
   try {
     const notes = await db.note.findMany({
@@ -31,7 +36,20 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json({ success: true, data: notes });
+    const { getEffectiveViewCount } = await import('@/lib/view-buffer');
+    const notesWithEffectiveViews = await Promise.all(
+      notes.map(async (note) => {
+        const shareLinksWithViews = await Promise.all(
+          note.shareLinks.map(async (link) => ({
+            ...link,
+            viewCount: await getEffectiveViewCount(link.id, link.viewCount),
+          }))
+        );
+        return { ...note, shareLinks: shareLinksWithViews };
+      })
+    );
+
+    return NextResponse.json({ success: true, data: notesWithEffectiveViews });
   } catch (error) {
     console.error('Fetch notes error:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch notes' }, { status: 500 });

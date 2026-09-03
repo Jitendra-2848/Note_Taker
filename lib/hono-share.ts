@@ -9,7 +9,7 @@ import {
 } from './redis';
 import { memoryCache } from './memory-cache';
 import { rateLimit } from './rate-limiter';
-import { bufferViewCount } from './view-buffer';
+import { bufferViewCount, recordView } from './view-buffer';
 
 export const shareApp = new Hono();
 
@@ -58,6 +58,11 @@ shareApp.get('/share/:token', async (c) => {
     // Absorbs 10,000+ RPS instantly on the local process without touching Redis or PostgreSQL
     const inMemoryData = memoryCache.get(token);
     if (inMemoryData) {
+      const memData = inMemoryData as any;
+      if (memData.shareLinkId) {
+        recordView(memData.shareLinkId).catch(() => {});
+        recordAccessLog(memData.shareLinkId, ipAddress, userAgent, 'SUCCESS').catch(() => {});
+      }
       c.header('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=15');
       c.header('X-Cache-Tier', 'L1-NODE-MEMORY');
       return c.json({
@@ -72,6 +77,10 @@ shareApp.get('/share/:token', async (c) => {
     if (redisCached) {
       try {
         const parsed = JSON.parse(redisCached);
+        if (parsed.shareLinkId) {
+          recordView(parsed.shareLinkId).catch(() => {});
+          recordAccessLog(parsed.shareLinkId, ipAddress, userAgent, 'SUCCESS').catch(() => {});
+        }
         memoryCache.set(token, parsed, 5); // Hydrate local L1 cache
         c.header('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=15');
         c.header('X-Cache-Tier', 'L2-REDIS');
@@ -137,6 +146,7 @@ shareApp.get('/share/:token', async (c) => {
 
       const responseData = {
         token: link.token,
+        shareLinkId: link.id,
         title: link.note.title,
         content: link.note.content,
         accessType: link.accessType,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
+import { flushPendingViews } from '@/lib/view-buffer';
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -9,6 +10,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { id } = await params;
+
+  // Non-blocking background flush
+  flushPendingViews().catch(() => {});
 
   try {
     const note = await db.note.findFirst({
@@ -30,7 +34,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ success: false, error: 'Note not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: note });
+    const { getEffectiveViewCount } = await import('@/lib/view-buffer');
+    const shareLinksWithViews = await Promise.all(
+      note.shareLinks.map(async (link) => ({
+        ...link,
+        viewCount: await getEffectiveViewCount(link.id, link.viewCount),
+      }))
+    );
+
+    return NextResponse.json({ success: true, data: { ...note, shareLinks: shareLinksWithViews } });
   } catch (error) {
     console.error('Fetch note details error:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch note' }, { status: 500 });
