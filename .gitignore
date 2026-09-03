@@ -47,3 +47,10 @@ next-env.d.ts
 
 # prisma generated client
 lib/generated-prisma/
+
+# local drafts & submission files
+x.tsx
+GOOGLE_DOC_SUBMISSION.md
+ARCHITECTURE_AND_WORKFLOW.md
+
+

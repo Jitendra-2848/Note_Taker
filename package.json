@@ -14,7 +14,6 @@
     "@tailwindcss/postcss": "^4",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
-    "hono": "^4.13.5",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.39.0",

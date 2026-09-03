@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fetchNotes = async () => {
-    setLoading(true);
+    setLoading(true); 
     try {
       const res = await fetch('/api/notes');
       const data = await res.json();

@@ -1,12 +1,13 @@
 # Secure Note-Taking System with Expiring Share Links
 
-A full-stack, enterprise-grade note-sharing application engineered with **Next.js 16 (App Router), Hono.js, PostgreSQL, and Redis**. Built to solve real-world concurrency, ephemeral data storage, dynamic access authorization, and high-throughput read scaling.
+A full-stack, enterprise-grade note-sharing application engineered with **Next.js 16 (App Router), PostgreSQL, and Redis**. Built to solve real-world concurrency, ephemeral data storage, dynamic access authorization, and high-throughput read scaling.
 
 ---
 
 ## 📖 Project Overview
 
 This platform enables users to create and manage private notes while generating highly configurable, self-destructing share links. Unlike standard sharing tools, every link is backed by cryptographic key derivation and atomic database row locking to guarantee:
+
 - **Zero Race Conditions**: Single-read notes cannot be double-consumed, even under millisecond-level concurrent requests.
 - **Granular Access Control**: Support for unauthenticated public links or dynamically generated bcrypt-hashed password keys.
 - **Accurate Telemetry**: Strict view analytics that differentiate legitimate reads from unauthorized attempts.
@@ -37,14 +38,14 @@ This platform enables users to create and manage private notes while generating 
 
 ## 🛠️ Tech Stack
 
-| Layer | Technologies |
-| :--- | :--- |
-| **Frontend** | Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4, Lucide Icons |
-| **Backend API** | Hono.js router mounted within Next.js Route Handlers |
-| **Database & ORM** | PostgreSQL (Neon Serverless with pgBouncer pooling) via Prisma ORM 5.x |
-| **Caching & Locking** | Redis Cloud (ioredis) + In-Process Node.js V8 Heap Memory Cache |
-| **Authentication** | Dual-Token JWT (15-min Access Token + 7-day Refresh Token in HttpOnly cookies) + Google OAuth 2.0 |
-| **Security & Cryptography** | Bcrypt (10 salt rounds), Node.js `crypto` CSPRNG, Sliding-Window Rate Limiting |
+| Layer                       | Technologies                                                                                      |
+| :-------------------------- | :------------------------------------------------------------------------------------------------ |
+| **Frontend**                | Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4, Lucide Icons                    |
+| **Backend API**             | Next.js 16 App Router Route Handlers (`app/api/`)                                                  |
+| **Database & ORM**          | PostgreSQL (Neon Serverless with pgBouncer pooling) via Prisma ORM 5.x                            |
+| **Caching & Locking**       | Redis Cloud (ioredis) + In-Process Node.js V8 Heap Memory Cache                                   |
+| **Authentication**          | Dual-Token JWT (15-min Access Token + 7-day Refresh Token in HttpOnly cookies) + Google OAuth 2.0 |
+| **Security & Cryptography** | Bcrypt (10 salt rounds), Node.js `crypto` CSPRNG, Sliding-Window Rate Limiting                    |
 
 ---
 
@@ -61,16 +62,16 @@ This platform enables users to create and manage private notes while generating 
                                 │   Next.js 16 App Router   │
                                 └─────────────┬─────────────┘
                                               │
-                      ┌───────────────────────┴───────────────────────┐
-                      ▼                                               ▼
-         ┌─────────────────────────┐                     ┌─────────────────────────┐
-         │ Next.js Route Handlers  │                     │   Hono.js API Router    │
-         │  • /api/auth/*          │                     │  • /api/share/[token]   │
-         │  • /api/notes/*         │                     │  • Rate Limiting & Auth │
-         └────────────┬────────────┘                     └────────────┬────────────┘
-                      │                                               │
-                      │               ┌───────────────────────────────┘
-                      ▼               ▼
+                                               │
+                                               ▼
+                                 ┌───────────────────────────┐
+                                 │ Next.js 16 Route Handlers │
+                                 │  • /api/auth/*            │
+                                 │  • /api/notes/*           │
+                                 │  • /api/share/[token]/*   │
+                                 └─────────────┬─────────────┘
+                                               │
+                                               ▼
          ┌────────────────────────────────────────────────────────┐
          │              Tiered Scalability Layer                  │
          │  1. L1 In-Process Node.js Heap Cache (0.01ms)          │
@@ -102,6 +103,7 @@ The persistence layer uses a normalized relational model organized into four cor
 ## 🔌 API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/register` — Create a new user account with hashed credentials.
 - `POST /api/auth/login` — Authenticate user, issuing access & refresh cookies.
 - `POST /api/auth/refresh` — Rotate and renew access tokens using a valid refresh token.
@@ -111,6 +113,7 @@ The persistence layer uses a normalized relational model organized into four cor
 - `GET /api/auth/google/callback` — Exchange OAuth code and establish user session.
 
 ### Notes Management
+
 - `GET /api/notes` — Fetch all notes owned by the authenticated user with share link metadata.
 - `POST /api/notes` — Create a note and generate its primary share link.
 - `GET /api/notes/:id` — Retrieve a specific note by ID.
@@ -118,7 +121,8 @@ The persistence layer uses a normalized relational model organized into four cor
 - `DELETE /api/notes/:id` — Delete note and cascade-delete its share links.
 - `POST /api/notes/:id/share` — Generate an additional share link for an existing note.
 
-### Share Link Operations (Powered by Hono.js)
+### Share Link Operations
+
 - `GET /api/share/:token` — Resolve link status, metadata, or public note content.
 - `POST /api/share/:token` — Atomic unlock for protected notes or consumption of one-time links.
 - `POST /api/share/:token/revoke` — Force-revoke a share link in real time.
@@ -179,38 +183,42 @@ The persistence layer uses a normalized relational model organized into four cor
 
 The application follows consistent, typed JSON error contracts with machine-readable error codes:
 
-| HTTP Status | Error Code | Description |
-| :--- | :--- | :--- |
-| `400 Bad Request` | `VALIDATION_ERROR` | Missing or malformed parameters. |
-| `401 Unauthorized` | `UNAUTHORIZED` / `WRONG_PASSWORD` | Missing session cookie or invalid access key. |
-| `404 Not Found` | `NOT_FOUND` | Share link does not exist or has been deleted. |
-| `410 Gone` | `EXPIRED` | Share link has passed its expiry timestamp. |
-| `410 Gone` | `ALREADY_USED` | One-time link was previously consumed. |
-| `410 Gone` | `REVOKED` | Share link was manually revoked by the owner. |
-| `410 Gone` | `RACE_CONDITION_BLOCKED` | Concurrent request blocked to preserve one-time guarantee. |
-| `429 Too Many Requests` | `RATE_LIMITED` | Throttled by rate limiter; includes `Retry-After` header. |
+| HTTP Status             | Error Code                        | Description                                                |
+| :---------------------- | :-------------------------------- | :--------------------------------------------------------- |
+| `400 Bad Request`       | `VALIDATION_ERROR`                | Missing or malformed parameters.                           |
+| `401 Unauthorized`      | `UNAUTHORIZED` / `WRONG_PASSWORD` | Missing session cookie or invalid access key.              |
+| `404 Not Found`         | `NOT_FOUND`                       | Share link does not exist or has been deleted.             |
+| `410 Gone`              | `EXPIRED`                         | Share link has passed its expiry timestamp.                |
+| `410 Gone`              | `ALREADY_USED`                    | One-time link was previously consumed.                     |
+| `410 Gone`              | `REVOKED`                         | Share link was manually revoked by the owner.              |
+| `410 Gone`              | `RACE_CONDITION_BLOCKED`          | Concurrent request blocked to preserve one-time guarantee. |
+| `429 Too Many Requests` | `RATE_LIMITED`                    | Throttled by rate limiter; includes `Retry-After` header.  |
 
 ---
 
 ## 🚀 Installation & Setup
 
 ### Prerequisites
+
 - Node.js 20.x or higher
 - PostgreSQL database instance (local or hosted via Neon / Supabase)
-- *(Optional)* Redis instance for distributed locks and rate limiting
+- _(Optional)_ Redis instance for distributed locks and rate limiting
 
 ### 1. Clone the Repository
+
 ```bash
 git clone https://github.com/Jitendra-2848/Note_Taker.git
 cd Note_Taker
 ```
 
 ### 2. Install Dependencies
+
 ```bash
 npm install
 ```
 
 ### 3. Configure Database
+
 ```bash
 # Push schema to database
 npx prisma db push
@@ -249,23 +257,30 @@ GOOGLE_CLIENT_SECRET="dummy-client-secret"
 ## 💻 Running the Project
 
 ### Development Mode
+
 ```bash
 npm run dev
 ```
+
 Access the application at [http://localhost:3000](http://localhost:3000).
 
 ### Production Build
+
 ```bash
 npm run build
 npm run start
 ```
 
 ### Automated End-to-End & Concurrency Tests
+
 ```bash
 node x.js
 ```
 
-
 ## 📄 License
 
 This project is open-source and available under the [MIT License](LICENSE).
+
+## Author
+
+Jitendra Prajapati
