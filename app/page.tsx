@@ -35,6 +35,7 @@ interface Note {
 export default function DashboardPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'PROTECTED' | 'ONE_TIME' | 'PUBLIC'>('ALL');
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
@@ -44,12 +45,21 @@ export default function DashboardPage() {
     setLoading(true); 
     try {
       const res = await fetch('/api/notes');
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        setNotes([]);
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setNotes(data.data);
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
       }
     } catch (err) {
       console.error('Failed to load notes', err);
+      setIsAuthenticated(false);
     } finally {
       setLoading(false);
     }
@@ -243,7 +253,52 @@ export default function DashboardPage() {
 
         {/* 3. NOTES GRID */}
         {loading ? (
-          <div className="text-center py-20 text-slate-500 dark:text-zinc-500 text-xs">Loading notes...</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 animate-pulse">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272a] rounded-xl p-4 flex flex-col justify-between space-y-4 shadow-sm"
+              >
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 bg-slate-200 dark:bg-zinc-800 rounded w-1/2" />
+                    <div className="h-4 bg-slate-200 dark:bg-zinc-800 rounded w-6" />
+                  </div>
+                  <div className="h-3 bg-slate-200 dark:bg-zinc-800/60 rounded w-1/3" />
+                  <div className="h-14 bg-slate-100 dark:bg-[#18181b] rounded-lg border border-slate-200 dark:border-zinc-800" />
+                </div>
+                <div className="h-9 bg-slate-100 dark:bg-[#18181b] rounded-lg border border-slate-200 dark:border-zinc-800" />
+              </div>
+            ))}
+          </div>
+        ) : !isAuthenticated ? (
+          <div className="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272a] rounded-2xl p-8 sm:p-12 text-center space-y-4 shadow-sm max-w-xl mx-auto my-6">
+            <div className="h-12 w-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mx-auto">
+              <FileText className="h-6 w-6" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-zinc-100">
+                Welcome to NoteTaker
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-md mx-auto leading-relaxed">
+                Create secure notes with customizable expiration, one-time burn links, and high-entropy password protection.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Link
+                href="/login"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition shadow-xs cursor-pointer"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/register"
+                className="px-4 py-2 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                Create Account
+              </Link>
+            </div>
+          </div>
         ) : filteredNotes.length === 0 ? (
           <div className="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272a] rounded-xl p-10 text-center space-y-3">
             <FileText className="h-8 w-8 text-slate-400 dark:text-zinc-600 mx-auto" />
@@ -261,7 +316,7 @@ export default function DashboardPage() {
             ) : (
               <Link
                 href="/notes/new"
-                className="inline-flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium"
+                className="inline-flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Create Note</span>
