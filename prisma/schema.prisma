@@ -1,0 +1,70 @@
+// Prisma Schema for Secure Note-Taking System with Expiring Links
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated-prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  notes        Note[]
+}
+
+model Note {
+  id         String      @id @default(uuid())
+  title      String
+  content    String
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  shareLinks ShareLink[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ShareLink {
+  id           String      @id @default(uuid())
+  noteId       String
+  note         Note        @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  token        String      @unique @default(uuid())
+  shareType    String      @default("TIME_BASED") // ONE_TIME | TIME_BASED
+  accessType   String      @default("PUBLIC")     // PUBLIC | PROTECTED
+  passwordHash String?     // Nullable, set if accessType == PROTECTED
+  plainKey     String?     // Unhashed key displayed to note creator
+  expiresAt    DateTime?   // Nullable expiry timestamp
+  isUsed       Boolean     @default(false)
+  isRevoked    Boolean     @default(false)
+  viewCount    Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  accessLogs   AccessLog[]
+
+  @@index([noteId])
+  @@index([token, isUsed, isRevoked])
+  @@index([expiresAt])
+}
+
+model AccessLog {
+  id          String    @id @default(uuid())
+  shareLinkId String
+  shareLink   ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  ipAddress   String?
+  userAgent   String?
+  status      String    // SUCCESS | WRONG_PASSWORD | EXPIRED | ALREADY_USED | REVOKED | RACE_BLOCKED
+  accessedAt  DateTime  @default(now())
+
+  @@index([shareLinkId])
+  @@index([accessedAt])
+}
