@@ -1,49 +1,216 @@
-# Note-Taking App with Secure Expiring Share Links
+# Secure Note-Taking System with Expiring Share Links
 
-A full-stack, production-ready web application built with **Next.js 16, Hono.js, PostgreSQL (Prisma ORM), and Redis**. It enables users to create notes, generate time-limited and self-destructing share links, enforce dynamic key authentication, prevent concurrent race conditions, and track accurate view analytics.
-
----
-
-## 🛠️ Tech Stack Used
-
-- **Frontend**: Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4, Lucide Icons
-- **Backend API**: Hono.js router mounted within Next.js Route Handlers
-- **Database & ORM**: PostgreSQL (Neon Serverless with connection pooling) via Prisma ORM 5.x
-- **Caching & Locking**: Redis Cloud (ioredis) + In-Process Node.js V8 Memory Cache
-- **Authentication**: Dual-Token JWT (15-min Access Token + 7-day Refresh Token in HttpOnly cookies) + Google OAuth 2.0
-- **Security**: Bcrypt password hashing, crypto-random dynamic keys, sliding-window rate limiting
+A full-stack, enterprise-grade note-sharing application engineered with **Next.js 16 (App Router), Hono.js, PostgreSQL, and Redis**. Built to solve real-world concurrency, ephemeral data storage, dynamic access authorization, and high-throughput read scaling.
 
 ---
 
-## ⚙️ Setup Instructions
+## 📖 Project Overview
 
-### 1. Prerequisites
+This platform enables users to create and manage private notes while generating highly configurable, self-destructing share links. Unlike standard sharing tools, every link is backed by cryptographic key derivation and atomic database row locking to guarantee:
+- **Zero Race Conditions**: Single-read notes cannot be double-consumed, even under millisecond-level concurrent requests.
+- **Granular Access Control**: Support for unauthenticated public links or dynamically generated bcrypt-hashed password keys.
+- **Accurate Telemetry**: Strict view analytics that differentiate legitimate reads from unauthorized attempts.
+- **High-Throughput Caching**: Multi-tier caching capable of absorbing viral traffic spikes without database connection starvation.
+
+---
+
+## ✨ Features
+
+- **Granular Expiry Settings**:
+  - `ONE_TIME`: Auto-destructs immediately after the first successful unlock.
+  - `TIME_BASED`: Remains accessible until a predefined duration (1h, 6h, 24h, 3d, 7d) or an exact custom date/time.
+- **Flexible Access Modes**:
+  - `PUBLIC`: Instant zero-friction access without passwords.
+  - `PROTECTED`: Dynamically generated high-entropy access key hashed using Bcrypt.
+- **Atomic Concurrency Protection**:
+  - Dual-layer protection using Redis `SETNX` in-memory locks and PostgreSQL atomic row transactions.
+- **Immediate Administrative Revocation**:
+  - One-click instant revocation that purges active links across all distributed caches in real time.
+- **Accurate View Analytics**:
+  - View counts increment strictly on authorized views; incorrect password guesses and expired hits are isolated.
+- **Comprehensive Audit Logs**:
+  - Captures timestamp, IP address (`x-forwarded-for`), browser user-agent, and status (`SUCCESS`, `WRONG_PASSWORD`, `EXPIRED`, `ALREADY_USED`, `REVOKED`, `RACE_BLOCKED`).
+- **Modern UI & Dual-Theme Experience**:
+  - Fully responsive, glassmorphic UI with seamless Dark and Light theme toggle without layout shift or hydration flicker.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4, Lucide Icons |
+| **Backend API** | Hono.js router mounted within Next.js Route Handlers |
+| **Database & ORM** | PostgreSQL (Neon Serverless with pgBouncer pooling) via Prisma ORM 5.x |
+| **Caching & Locking** | Redis Cloud (ioredis) + In-Process Node.js V8 Heap Memory Cache |
+| **Authentication** | Dual-Token JWT (15-min Access Token + 7-day Refresh Token in HttpOnly cookies) + Google OAuth 2.0 |
+| **Security & Cryptography** | Bcrypt (10 salt rounds), Node.js `crypto` CSPRNG, Sliding-Window Rate Limiting |
+
+---
+
+## 🏗️ System Architecture
+
+```
+                                ┌───────────────────────────┐
+                                │   Client (Browser / PWA)  │
+                                └─────────────┬─────────────┘
+                                              │
+                         HTTP / JSON Requests │ (Rate-Limited by IP/Token)
+                                              ▼
+                                ┌───────────────────────────┐
+                                │   Next.js 16 App Router   │
+                                └─────────────┬─────────────┘
+                                              │
+                      ┌───────────────────────┴───────────────────────┐
+                      ▼                                               ▼
+         ┌─────────────────────────┐                     ┌─────────────────────────┐
+         │ Next.js Route Handlers  │                     │   Hono.js API Router    │
+         │  • /api/auth/*          │                     │  • /api/share/[token]   │
+         │  • /api/notes/*         │                     │  • Rate Limiting & Auth │
+         └────────────┬────────────┘                     └────────────┬────────────┘
+                      │                                               │
+                      │               ┌───────────────────────────────┘
+                      ▼               ▼
+         ┌────────────────────────────────────────────────────────┐
+         │              Tiered Scalability Layer                  │
+         │  1. L1 In-Process Node.js Heap Cache (0.01ms)          │
+         │  2. L2 Redis Distributed Cache & SETNX Locks (1ms)     │
+         │  3. Async Batched View Counter Buffer                  │
+         └────────────────────────────┬───────────────────────────┘
+                                      │
+                                      ▼
+         ┌────────────────────────────────────────────────────────┐
+         │       PostgreSQL Database (Neon Connection Pooler)     │
+         │  • Atomic Serialized Transactions (UPDATE ... RETURNING)│
+         │  • B-Tree Indexed Lookups on Tokens & Timestamps       │
+         └────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🗄️ Database Entities (High-Level Overview)
+
+The persistence layer uses a normalized relational model organized into four core domain entities:
+
+- **Users**: Manages user accounts, authentication credentials (bcrypt password hashes), profiles, and note ownership.
+- **Notes**: Stores note titles, markdown contents, author associations, and creation metadata.
+- **ShareLinks**: Represents individual sharing rules tied to a note. Stores unique URL tokens, share duration types (`ONE_TIME` vs `TIME_BASED`), access control modes (`PUBLIC` vs `PROTECTED`), hashed dynamic access keys, expiration timestamps, usage flags, revocation states, and view metrics.
+- **AccessLogs**: Tracks real-time telemetry for every share link interaction, capturing requester IP address, client browser user-agent, access outcome, and access timestamps.
+
+---
+
+## 🔌 API Endpoints
+
+### Authentication
+- `POST /api/auth/register` — Create a new user account with hashed credentials.
+- `POST /api/auth/login` — Authenticate user, issuing access & refresh cookies.
+- `POST /api/auth/refresh` — Rotate and renew access tokens using a valid refresh token.
+- `POST /api/auth/logout` — Clear session cookies.
+- `GET /api/auth/me` — Retrieve currently authenticated user context.
+- `GET /api/auth/google` — Initiate Google OAuth 2.0 flow (with local mock fallback).
+- `GET /api/auth/google/callback` — Exchange OAuth code and establish user session.
+
+### Notes Management
+- `GET /api/notes` — Fetch all notes owned by the authenticated user with share link metadata.
+- `POST /api/notes` — Create a note and generate its primary share link.
+- `GET /api/notes/:id` — Retrieve a specific note by ID.
+- `PUT /api/notes/:id` — Update note title or content.
+- `DELETE /api/notes/:id` — Delete note and cascade-delete its share links.
+- `POST /api/notes/:id/share` — Generate an additional share link for an existing note.
+
+### Share Link Operations (Powered by Hono.js)
+- `GET /api/share/:token` — Resolve link status, metadata, or public note content.
+- `POST /api/share/:token` — Atomic unlock for protected notes or consumption of one-time links.
+- `POST /api/share/:token/revoke` — Force-revoke a share link in real time.
+
+---
+
+## 🔑 Authentication & Authorization
+
+- **Dual-Token Architecture**:
+  - **Access Token**: Short-lived (15 minutes), signed with `JWT_SECRET`, transmitted via `HttpOnly`, `SameSite=Lax` cookies.
+  - **Refresh Token**: Long-lived (7 days), signed with `JWT_REFRESH_SECRET`, stored securely for silent background re-authentication without interrupting user workflows.
+- **Google OAuth 2.0**: Native OAuth integration with an automated local test simulator for instant zero-config testing.
+- **Route Authorization**: Strict server-side verification using `getCurrentUser()` across all mutation routes.
+
+---
+
+## 📝 Note Management
+
+- **Markdown Composer**: Clean, full-featured text editor supporting structured formatting.
+- **Dynamic Duration Presets**: Rapid presets (1 hour, 6 hours, 24 hours, 3 days, 7 days) alongside an exact custom datetime picker.
+- **Multi-Link Generation**: Create multiple independent share links per note with different permission sets (e.g. one public link for team members, one password-protected link for external clients).
+
+---
+
+## ⏳ Expiring Share Links
+
+- **One-Time Access (`ONE_TIME`)**:
+  - Consumed and burned permanently upon first successful read.
+  - Subsequent access displays an informational `ALREADY_USED` status banner.
+- **Time-Based Access (`TIME_BASED`)**:
+  - Remains readable until `expiresAt`.
+  - Expiration verified dynamically at query time: `("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)`.
+- **Force Revocation**:
+  - Note owners can revoke links at any point, instantly invalidating active sessions and distributed cache entries.
+
+---
+
+## 🛡️ Security Considerations
+
+1. **Race-Condition & Double-Spend Prevention**:
+   - **Distributed Lock**: Redis `SETNX` (`SET lock:token 1 EX 60 NX`) claims the link in $<1\text{ ms}$.
+   - **Atomic SQL Serializer**: Single-query atomic row mutation (`UPDATE "ShareLink" SET "isUsed" = true WHERE "token" = $1 AND "isUsed" = false`). Exactly one request updates the row; all concurrent requests fail and receive HTTP 410.
+2. **Brute-Force Rate Limiting**:
+   - Tiered sliding-window rate limiters across all critical paths:
+     - Auth routes: 10 requests / minute.
+     - Note creation: 30 requests / minute.
+     - Public reads: 200 requests / minute.
+     - Password unlock attempts: **5 attempts / 15 minutes** per token/IP combination.
+3. **Dynamic Password Entropy**:
+   - Dynamic keys generated via `crypto.randomBytes(12).toString('base64url')` providing 72 bits of cryptographic entropy.
+   - Hashed using `bcryptjs` (work factor 10) to make automated dictionary attacks computationally prohibitive.
+4. **Environment Isolation**:
+   - Production secrets strictly required in environment variables; zero hardcoded fallback keys.
+
+---
+
+## ⚠️ Error Handling
+
+The application follows consistent, typed JSON error contracts with machine-readable error codes:
+
+| HTTP Status | Error Code | Description |
+| :--- | :--- | :--- |
+| `400 Bad Request` | `VALIDATION_ERROR` | Missing or malformed parameters. |
+| `401 Unauthorized` | `UNAUTHORIZED` / `WRONG_PASSWORD` | Missing session cookie or invalid access key. |
+| `404 Not Found` | `NOT_FOUND` | Share link does not exist or has been deleted. |
+| `410 Gone` | `EXPIRED` | Share link has passed its expiry timestamp. |
+| `410 Gone` | `ALREADY_USED` | One-time link was previously consumed. |
+| `410 Gone` | `REVOKED` | Share link was manually revoked by the owner. |
+| `410 Gone` | `RACE_CONDITION_BLOCKED` | Concurrent request blocked to preserve one-time guarantee. |
+| `429 Too Many Requests` | `RATE_LIMITED` | Throttled by rate limiter; includes `Retry-After` header. |
+
+---
+
+## 🚀 Installation & Setup
+
+### Prerequisites
 - Node.js 20.x or higher
-- PostgreSQL database URL (e.g. Neon, Supabase, or local Postgres)
-- *(Optional)* Redis URL (system automatically falls back to PostgreSQL atomic locking if Redis is not configured)
+- PostgreSQL database instance (local or hosted via Neon / Supabase)
+- *(Optional)* Redis instance for distributed locks and rate limiting
 
-### 2. Clone & Install
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/Jitendra-2848/Note_Taker.git
 cd Note_Taker
+```
+
+### 2. Install Dependencies
+```bash
 npm install
 ```
 
-### 3. Environment Configuration
-Create a `.env` file based on `.env.example`:
-```bash
-cp .env.example .env
-```
-Populate `.env` with your values:
-```env
-DATABASE_URL="postgresql://user:password@host:5432/neondb?sslmode=require"
-JWT_SECRET="your-256-bit-access-secret-minimum-32-chars"
-JWT_REFRESH_SECRET="your-256-bit-refresh-secret-minimum-32-chars"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-REDIS_URL="redis://default:password@your-redis-host:6379" # Optional
-```
-
-### 4. Database Setup & Seeding
+### 3. Configure Database
 ```bash
 # Push schema to database
 npx prisma db push
@@ -52,189 +219,53 @@ npx prisma db push
 npx tsx prisma/seed.ts
 ```
 
-### 5. Run Application
+---
+
+## 🔐 Environment Variables
+
+Create a `.env` file in the root directory:
+
+```env
+# PostgreSQL Connection String (supports pooled connections)
+DATABASE_URL="postgresql://user:password@host:5432/neondb?sslmode=require"
+
+# JWT Signing Secrets (minimum 32 characters)
+JWT_SECRET="your-256-bit-jwt-access-secret-minimum-32-characters"
+JWT_REFRESH_SECRET="your-256-bit-jwt-refresh-secret-minimum-32-characters"
+
+# Base Application URL
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+
+# Optional Redis Connection (falls back to PostgreSQL atomic queries if omitted)
+REDIS_URL="redis://default:password@your-redis-host:6379"
+
+# Optional Google OAuth 2.0 Credentials (leave dummy to use local OAuth simulator)
+GOOGLE_CLIENT_ID="dummy-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="dummy-client-secret"
+```
+
+---
+
+## 💻 Running the Project
+
+### Development Mode
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Access the application at [http://localhost:3000](http://localhost:3000).
 
-### 6. Run Automated Concurrency & Load Tests
+### Production Build
+```bash
+npm run build
+npm run start
+```
+
+### Automated End-to-End & Concurrency Tests
 ```bash
 node x.js
 ```
 
----
 
-## 🗄️ Database Schema
+## 📄 License
 
-```prisma
-model User {
-  id           String      @id @default(uuid())
-  email        String      @unique
-  passwordHash String
-  name         String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  notes        Note[]
-}
-
-model Note {
-  id         String      @id @default(uuid())
-  title      String
-  content    String
-  userId     String
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  shareLinks ShareLink[]
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
-model ShareLink {
-  id           String      @id @default(uuid())
-  noteId       String
-  note         Note        @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  token        String      @unique @default(uuid())
-  shareType    String      @default("TIME_BASED") // ONE_TIME | TIME_BASED
-  accessType   String      @default("PUBLIC")     // PUBLIC | PROTECTED
-  passwordHash String?                            // Nullable bcrypt hash of access key
-  plainKey     String?                            // Unhashed key displayed once to creator
-  expiresAt    DateTime?                          // Nullable expiry timestamp
-  isUsed       Boolean     @default(false)
-  isRevoked    Boolean     @default(false)
-  viewCount    Int         @default(0)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  accessLogs   AccessLog[]
-
-  @@index([noteId])
-  @@index([token, isUsed, isRevoked])
-  @@index([expiresAt])
-}
-
-model AccessLog {
-  id          String    @id @default(uuid())
-  shareLinkId String
-  shareLink   ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
-  ipAddress   String?
-  userAgent   String?
-  status      String    // SUCCESS | WRONG_PASSWORD | EXPIRED | ALREADY_USED | REVOKED | RACE_BLOCKED
-  accessedAt  DateTime  @default(now())
-
-  @@index([shareLinkId])
-  @@index([accessedAt])
-}
-```
-
----
-
-## 🔄 Share Link Flow (Point-to-Point)
-
-1. **Note Creation (`/notes/new`)**:
-   - User inputs Title and Content.
-   - Selects **Share Type**: `ONE_TIME` (burns on first read) or `TIME_BASED` (accessible until expiry).
-   - Selects **Access Type**: `PUBLIC` (opens directly) or `PROTECTED` (requires access key).
-   - Selects **Expiry Window**: 1h, 6h, 24h, 3d, 7d, or a custom exact date/time picker.
-
-2. **Link & Key Generation**:
-   - Generates a unique 64-character URL token: `/share/[token]`.
-   - If `PROTECTED`, automatically generates a cryptographically random 16-character access key (`crypto.randomBytes`).
-   - The password hash (`bcrypt.hash(key, 10)`) is stored in the database; the plain key is shown to the creator with a 1-click copy button.
-
-3. **Public Access Flow**:
-   - Recipient navigates to `/share/[token]`.
-   - Server checks revocation and expiration.
-   - If valid, renders note content immediately and records a successful view.
-
-4. **Password-Protected Access Flow**:
-   - Recipient navigates to `/share/[token]`.
-   - Content is withheld. A password modal is displayed.
-   - Correct key unlocks the note and increments view count by 1.
-   - Incorrect key returns `401 WRONG_PASSWORD` with 0 view count change and logs the attempt.
-
----
-
-## 🔒 Core Logic & Architecture (Point-to-Point)
-
-### 1. Password / Key Generation Logic
-- High-entropy dynamic access keys generated via `crypto.randomBytes(12).toString('base64url')`.
-- Hashed using `bcryptjs` with cost factor 10 before persisting to PostgreSQL.
-- Only the creator receives the plain key at link generation time.
-
-### 2. Expiry Logic
-- Expiration timestamps (`expiresAt`) are calculated at creation (`Date.now() + expiresInHours * 3600000`) or parsed from custom datetime input.
-- Database queries enforce validity checks: `("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)`.
-- Accessing an expired link returns HTTP `410 EXPIRED` without incrementing view count.
-
-### 3. Invalidate / Revoke Logic
-- Note owners can click **Revoke** on the Dashboard or Note Detail page (`/api/share/[token]/revoke`).
-- Atomically sets `isRevoked = true` in PostgreSQL.
-- Immediately evicts the token from Redis and in-process Node memory caches.
-- Subsequent requests instantly receive HTTP `410 REVOKED`.
-
-### 4. View Count Logic
-- **Public Note**: Increments `viewCount` by +1 upon valid page fetch.
-- **Protected Note**: Increments `viewCount` by +1 **strictly after** `bcrypt.compare()` returns `true`.
-- **Wrong Password**: Does **not** increment `viewCount` (logged in `AccessLog` as `WRONG_PASSWORD`).
-- **Expired / Revoked / Consumed Links**: Does **not** increment `viewCount`.
-
-### 5. Race-Condition Handling (One-Time Links)
-To prevent two users from opening a one-time link at the same millisecond:
-1. **Layer 1 (In-Memory Redis Distributed Lock)**:
-   - First incoming request acquires lock via `SET lock:token 1 EX 60 NX`.
-   - Any concurrent request arriving in $<1\text{ ms}$ fails the lock in memory and is rejected immediately with HTTP `410 RACE_CONDITION_BLOCKED`.
-2. **Layer 2 (PostgreSQL Atomic Row Lock)**:
-   - Executes single atomic SQL update:
-     ```sql
-     UPDATE "ShareLink"
-     SET "isUsed" = true, "viewCount" = "viewCount" + 1, "updatedAt" = CURRENT_TIMESTAMP
-     WHERE "token" = $1 AND "isUsed" = false AND "isRevoked" = false
-     ```
-   - Exactly 1 concurrent transaction modifies the row; all others match 0 rows and are safely rejected.
-
----
-
-## ❓ Required Technical Q&A Answers
-
-### Q1: How do you prevent two users from using a one-time link at the same time?
-> **Answer**: We combine an in-memory distributed lock with atomic database transactions:
-> 1. **Redis SETNX Lock**: The first request acquires `SET lock:token 1 EX 60 NX` in $<1\text{ ms}$. Concurrent requesters fail the memory lock and are rejected immediately.
-> 2. **Atomic SQL Mutation**: We run `UPDATE "ShareLink" SET "isUsed" = true WHERE "token" = $1 AND "isUsed" = false`. Database row-level locks serialize the write; exactly 1 request modifies the row and receives the note, while all concurrent requests fail the `isUsed = false` condition and return HTTP `410 ALREADY_USED`.
-
-### Q2: How do you update view count safely?
-> **Answer**: 
-> 1. View counts are updated via atomic SQL increment operations (`viewCount = viewCount + 1`), preventing lost updates caused by read-modify-write race conditions.
-> 2. Increments execute **strictly after authorization succeeds**. For password-protected links, `bcrypt.compare()` must validate before the increment query runs. Failed attempts, expired links, and revoked links never trigger increment operations.
-
-### Q3: How would this work if 1 million people opened the link?
-> **Answer**: To handle 1 million viral requests without crashing:
-> 1. **Global Edge CDN Caching**: Public time-based links return `Cache-Control: public, s-maxage=5, stale-while-revalidate=15`. Cloudflare/Vercel Edge CDNs absorb 90%+ of reads at edge data centers without touching application servers.
-> 2. **In-Process V8 Heap Cache (`lib/memory-cache.ts`)**: The Node.js process caches active note data in memory for 5 seconds (0.01ms latency), protecting Redis connection limits.
-> 3. **Redis In-Memory Layer (`lib/redis.ts`)**: Shared cache across server instances serving up to 100,000 ops/sec.
-> 4. **Asynchronous View Counter Batching (`lib/view-buffer.ts`)**: View increments are collected in memory and flushed to PostgreSQL in batched updates every 3 seconds, reducing database write operations from 1,000,000 to ~20.
-> 5. **One-Time Race Shield**: Redis `SETNX` rejects 999,999 parallel requesters in memory; only 1 transaction reaches PostgreSQL.
-
-### Q4: How would you prevent brute-force attempts on password-protected links?
-> **Answer**:
-> 1. **Sliding-Window Rate Limiting (`lib/rate-limiter.ts`)**: Enforce a strict rate limit of **5 failed password attempts per 15 minutes** per IP/token combination. Exceeding attempts triggers HTTP `429 Too Many Requests` with a `Retry-After` header.
-> 2. **Computational Cost**: Bcrypt with cost factor 10 introduces a deliberate CPU workload per attempt, preventing automated high-speed dictionary attacks.
-> 3. **Isolation**: Rate limits are scoped to client IP and token; an attack on one note does not impact other users.
-
----
-
-## 📹 Demo Video Checklist
-
-When recording your demonstration video, verify that each of the following flows is shown:
-
-- [x] **Note Creation**: Creating a note with title, content, duration, and access settings.
-- [x] **Share Link Generation**: Generating the unique shareable link.
-- [x] **Public Share Link Flow**: Opening a public link directly without password prompts.
-- [x] **Password-Protected Share Link Flow**: Unlocking a protected note using the generated access key.
-- [x] **Dynamic Password / Key Generation**: Displaying the auto-generated high-entropy key with 1-click copy.
-- [x] **Wrong Password Case**: Entering an incorrect key showing an error banner and 0 view count change.
-- [x] **One-Time Expiry Case**: Opening a one-time note, refreshing/reopening, and verifying the `ALREADY_USED` notice.
-- [x] **Time-Based Expiry Case**: Verifying that a link past its expiration timestamp displays the `EXPIRED` screen.
-- [x] **Force Invalidate Case**: Clicking Revoke and confirming immediate link termination across all sessions.
-- [x] **View Count Update**: Demonstrating that valid views increment by 1 while unauthorized attempts do not.
+This project is open-source and available under the [MIT License](LICENSE).
