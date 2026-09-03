@@ -1,5 +1,12 @@
 # Secure Note-Taking System with Expiring Share Links
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-blue?style=for-the-badge&logo=vercel)](https://note-taker-six-liart.vercel.app/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16.3-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169e1?style=for-the-badge&logo=postgresql)](https://neon.tech/)
+[![Redis](https://img.shields.io/badge/Redis-Cloud-dc382d?style=for-the-badge&logo=redis)](https://redis.io/)
+
+🌐 **Live Production Application:** [https://note-taker-six-liart.vercel.app/](https://note-taker-six-liart.vercel.app/)
+
 A full-stack, enterprise-grade note-sharing application engineered with **Next.js 16 (App Router), PostgreSQL, and Redis**. Built to solve real-world concurrency, ephemeral data storage, dynamic access authorization, and high-throughput read scaling.
 
 ---
