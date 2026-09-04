@@ -16,7 +16,7 @@ Update this file after every meaningful implementation change or architectural d
 - **Architecture**: Next.js 16 (App Router), React 19, Tailwind CSS v4, Hono.js router, Prisma ORM, Neon PostgreSQL, Redis Cloud (ioredis).
 - **Authentication**: Dual-token architecture (15-minute Access Token + 7-day Refresh Token), Google OAuth 2.0 with local mock simulator fallback, Bcrypt password hashing.
 - **Concurrency & Locking**: In-memory Redis SETNX distributed lock with Neon PostgreSQL atomic row-level update fallback.
-- **Cache & Rate-Limiting**: Redis sliding-window brute force lock (5 attempts / 15 min) + 300s in-memory note caching.
+- **Cache & Rate-Limiting**: Redis sliding-window brute-force lock by client IP (5 failed attempts / 15 min per IP) + 300s in-memory note caching.
 - **UI & Experience**: Dark/Light mode on all pages, custom datetime expiry, responsive mobile navigation, audit access logging.
 - **Code Quality**: Cleaned all unnecessary comments; verified 0 build errors across all 17 routes.
 
@@ -27,7 +27,7 @@ Update this file after every meaningful implementation change or architectural d
 - [x] **Hono.js Router**: Built high-speed API routes in `lib/hono-share.ts` with clean middleware.
 - [x] **Viewer Audit Logging**: Added `AccessLog` model recording client IP (`x-forwarded-for`), User-Agent, timestamp, and status for every access attempt.
 - [x] **First-Come First-Served Concurrency**: Single-query atomic SQL update locks one-time notes so only the first request succeeds; subsequent concurrent requests receive a polite 410 "already claimed" message.
-- [x] **Brute-Force Attack Mitigation**: Rate-limiting guard temporarily locks links with 5+ failed password attempts in 15 minutes.
+- [x] **Brute-Force Attack Mitigation**: Offending users are blocked by their IP in Redis after 5 failed password attempts in 15 minutes, preserving note access for all other legitimate users.
 - [x] **Note Editing**: Inline editor on `/notes/[id]` with `PUT /api/notes/[id]`.
 - [x] **Note Search & Category Filters**: Real-time keyword search and category pills (`All`, `Active`, `Protected`, `One-Time`, `Public`) on dashboard.
 - [x] **Direct Link Revocation**: One-click revocation from home page (`/`) which deletes and removes the link immediately.

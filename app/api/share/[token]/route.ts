@@ -5,7 +5,10 @@ import {
   acquireRedisLock, 
   getCachedNote, 
   setCachedNote, 
-  invalidateCachedNote, 
+  invalidateCachedNote,
+  isIpBlocked,
+  recordFailedPasswordAttempt,
+  clearFailedPasswordAttempts,
 } from '@/lib/redis';
 import { memoryCache } from '@/lib/memory-cache';
 import { rateLimit } from '@/lib/rate-limiter';
@@ -15,7 +18,11 @@ export const dynamic = 'force-dynamic';
 
 function getClientMeta(req: Request) {
   const forwarded = req.headers.get('x-forwarded-for');
-  const ipAddress = forwarded ? forwarded.split(',')[0].trim() : req.headers.get('x-real-ip') || '127.0.0.1';
+  const ipAddress = forwarded 
+    ? forwarded.split(',')[0].trim() 
+    : req.headers.get('x-real-ip') 
+    || req.headers.get('cf-connecting-ip')
+    || '127.0.0.1';
   const userAgent = req.headers.get('user-agent') || 'Unknown Browser';
   return { ipAddress, userAgent };
 }
@@ -215,25 +222,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   }
   const { password } = body;
 
-  // Rate Limiter: Max 5 password attempts per token per IP per 15 minutes
-  const unlockKey = `unlock:${token}:${ipAddress}`;
-  const { allowed: unlockAllowed } = await rateLimit(unlockKey, 'UNLOCK');
-  if (!unlockAllowed) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Too many incorrect attempts. This link is locked for 15 minutes for security.',
-        code: 'RATE_LIMITED',
-      },
-      { status: 429 }
-    );
-  }
-
-  // General traffic rate limit: 200 req/min
+  // 1. General traffic rate limit: 200 req/min per IP
   const { allowed: generalAllowed } = await rateLimit(ipAddress, 'READ');
   if (!generalAllowed) {
     return NextResponse.json(
       { success: false, error: 'Rate limit exceeded.', code: 'RATE_LIMITED' },
+      { status: 429 }
+    );
+  }
+
+  // 2. IP-Level Security Guard: Check if this user's IP is blocked in Redis for failed attempts
+  const ipBlockStatus = await isIpBlocked(ipAddress);
+  if (ipBlockStatus.blocked) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Too many incorrect password attempts. Your IP address (${ipAddress}) has been blocked for 15 minutes.`,
+        code: 'RATE_LIMITED',
+        remainingSeconds: ipBlockStatus.remainingTtl,
+      },
       { status: 429 }
     );
   }
@@ -305,15 +312,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       const isValid = await verifyPassword(password, link.passwordHash);
       if (!isValid) {
         await recordAccessLog(link.id, ipAddress, userAgent, 'WRONG_PASSWORD');
+
+        // Record failed password attempt for this specific IP in Redis
+        const attemptResult = await recordFailedPasswordAttempt(ipAddress, 5, 900);
+
+        if (attemptResult.blocked) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Too many incorrect attempts. Your IP address has been temporarily blocked for 15 minutes.',
+              code: 'RATE_LIMITED',
+            },
+            { status: 429 }
+          );
+        }
+
         return NextResponse.json(
           {
             success: false,
-            error: 'Incorrect access key. Please verify and try again.',
+            error: `Incorrect access key. ${attemptResult.remainingAttempts} attempt${attemptResult.remainingAttempts === 1 ? '' : 's'} remaining before your IP is blocked.`,
             code: 'WRONG_PASSWORD',
+            remainingAttempts: attemptResult.remainingAttempts,
           },
           { status: 401 }
         );
       }
+
+      // Valid password unlock: clear failed attempts for this IP in Redis
+      await clearFailedPasswordAttempts(ipAddress);
     }
 
     // One-Time Burn: Distributed Mutex Lock + Conditional Atomic SQL
